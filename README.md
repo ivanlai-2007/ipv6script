@@ -1,6 +1,6 @@
-# Mac 串流怎麼優先走 IPv6？Clash Verge Rev 設定與驗證
+# Mac 串流 IPv6 優先與網易雲 CDN 設定
 
-在 Mac 上，可以讓原本走直連的網易雲、Bilibili、QQ、微信等服務優先使用 IPv6。這個做法保留 IPv4 回退，適合想減少串流佔用 IPv4 流量、又希望繼續正常播放的人。
+用 Clash Verge Rev，可以讓原本直連的網易雲、Bilibili、QQ、微信等服務優先使用 IPv6，並保留 IPv4 回退。如果網易雲的音訊 CDN 仍大量走 IPv4，可以加上 DNS 補強，再選擇是否把指定 CDN 的 TCP 連線限制為 IPv6。校園網或電信商的扣量仍須按該網路的計費口徑核對。
 
 如果可以给个star再走吧
 
@@ -17,7 +17,7 @@
 
 腳本以程式名稱、Apple 原生 App 路徑及服務網域辨識流量，涵蓋網易雲、QQ 音樂、Spotify、Apple Music、微信、QQ、Bilibili、抖音、YouTube、Netflix、Twitch 和常見網盤。預設只對符合條件的 TCP 直連使用 `ipv6-prefer`。原先直接指向 `DIRECT` 的規則也會套用，`GEOIP,private` 和 `GEOSITE,private` 原樣保留。 [Mihomo 路由規則](https://wiki.metacubex.one/en/config/rules/) · [IP 版本設定](https://wiki.metacubex.one/en/config/proxies/#ip-version)
 
-## 2. 網易雲仍經常回退 IPv4 時再加 DNS 規則
+## 2. 網易雲 CDN 的 DNS 補強與 IPv6 限制
 
 網易雲的音訊檔由 CDN 提供。實測同一個 `m801.music.126.net` 在不同查詢中取得的 IPv6 記錄會變動。範例將網易雲音訊網域及幾個 CDN 別名交給兩個在測試網路中可用的公用 DNS `119.29.29.29` 和 `223.5.5.5`。建議先在自己的網路查 `AAAA`，因為不同地區或網路的結果可能不同。
 
@@ -26,9 +26,9 @@ dig +short AAAA m801.music.126.net
 dig +short AAAA p4.music.126.net.ctlcdn.cn
 ```
 
-若已有腳本 A 放在全域，右鍵目前訂閱，開啟「擴充指令碼」，貼上**腳本 B**並儲存。腳本 B 需要訂閱本身有啟用 `dns`。如果兩段都要放在同一個檔案，把腳本 B 的函式改名為 `applyNeteaseDNS`，再把腳本 A 最後的 `return config;` 改成 `return applyNeteaseDNS(config);`。 [Clash Verge 腳本設定](https://clashvergerev.com/zh-tw/guide/script)
-
-儲存後，在「設定 → 執行期設定」找 `dns.nameserver-policy` 和 `direct-nameserver-follow-policy: true`。如果「DNS 覆寫」使新增的欄位沒有進入執行期設定，可把同樣的網域規則合併到目前生效的 DNS 覆寫設定。保留原有政策，再確認直連 DNS 會遵循 `nameserver-policy`。這個開關也會讓同一訂閱的直連 DNS 遵循原有的網域解析政策。 [Mihomo DNS 直連政策](https://wiki.metacubex.one/en/config/dns/#direct-nameserver-follow-policy)
+1. 將**腳本 A**放在「全域擴充指令碼」，再把文末的**腳本 B**接在同一個檔案的結尾。把 B 開頭的 `neteaseProfileName` 換成訂閱頁顯示的名稱，兩者須完全相同。這樣訂閱更新後，可以從全域腳本重新套用。 [Clash Verge 腳本設定](https://clashvergerev.com/zh-tw/guide/script)
+2. 腳本 B 預設補強 DNS，並讓 `NeteaseMusic*` 連至清單內 CDN 的 TCP 連線**只走 IPv6 直連**。如果某個 CDN 沒有可用的 IPv6，該次載入可能失敗。若想保留 IPv4 回退，把 `neteaseIPv6Only` 改成 `false`，就只套用 DNS 補強。 [Mihomo 出站 IP 版本](https://wiki.metacubex.one/en/config/proxies/#ip-version)
+3. DNS 補強需要訂閱已啟用 Mihomo DNS。儲存後，在「設定 → 執行期設定」確認 `dns.nameserver-policy` 有網易雲條目，且 `direct-nameserver-follow-policy` 為 `true`。這個開關也會讓同一訂閱的直連 DNS 遵循原有的網域解析政策。若啟用了會覆蓋這些欄位的「DNS 覆寫」，把相同 DNS 規則合併到生效的 DNS 設定中。IPv6 限制啟用後，網易雲命中的連線會顯示 **網易雲 CDN IPv6 直連**。 [Mihomo DNS 直連政策](https://wiki.metacubex.one/en/config/dns/#direct-nameserver-follow-policy)
 
 ## 3. 到 Wi-Fi 介面驗證實際流量
 
@@ -41,15 +41,26 @@ nettop -n -d -p verge-mihomo -J interface,bytes_in,bytes_out
 
 先用第一行找出 Wi-Fi 的 `Device`，例如 `en0`。播放一首未快取的歌，再看第二行指令裡對應介面的 `tcp6`／`tcp4` 與 `bytes_in`。若內核程序名稱不同，把 `verge-mihomo` 換成實際名稱。要精確對照到單條 App 連線，可在 Mihomo 的 `/connections` 以 `sourcePort` 找到該列，查看 `metadata.remoteDestination`。有使用代理節點時，這個欄位反映的是代理的對外連線。 [Apple 封包擷取指南](https://developer.apple.com/documentation/network/recording-a-packet-trace) · [Mihomo 連線 API](https://wiki.metacubex.one/en/api/#connections)
 
-一次實際播放觀測中，`m801.music.126.net` 有約 1.8 MiB 的連線在 TUN 顯示 IPv4，實際 Wi-Fi 出站為 IPv6。同時也觀測到約 13 KiB 的連線直接指定 IPv4 位址，出站仍為 IPv4。
+### 實測流量與帳單核對
+
+同一台 Mac 的兩次實際播放取樣如下。兩輪播放內容和取樣時間不同，數字用於確認出站版本。
+
+| 網易雲播放取樣 | IPv4 下載 | IPv6 下載 |
+| --- | ---: | ---: |
+| 當時只生效一般 IPv6 優先，取樣 80 秒 | 111.0 MiB | 7.7 MiB |
+| 啟用 DNS 補強及指定 CDN 僅用 IPv6，含換歌取樣 60 秒 | 0 MiB | 68.4 MiB |
+
+第一輪的 IPv4 大流量主要來自 `m801.music.126.net`。第二輪這個主機約 29.9 MiB 的下載走了 IPv6。表格只計取樣期間觀測到的網易雲下載，後續用量頁仍有扣量疑問，尚未取得對應明細。
+
+核對帳單時，記下測試開始和結束的時間、Mac 的 IPv4／IPv6 出站量，再比對用量頁**同一時段**的增量。確認用量頁計入哪些 IP 版本，以及是否合併其他裝置。腳本 B 的公用 DNS 查詢使用 IPv4，其他程式、未命中 CDN 清單的流量，以及只有數字 IP 而無網域的連線，仍可能產生 IPv4 用量。
 
 ## 使用上的取捨
 
 - TCP 的 IPv4 和 IPv6 可並行嘗試。兩種都能解析、IPv4 先連上而 IPv6 還在嘗試時，Mihomo 有約 300 毫秒的偏好等待窗口。實際播放和傳輸快慢仍取決於 CDN 與網路路徑。 [Mihomo v1.19.32 連線實作](https://github.com/MetaCubeX/mihomo/blob/v1.19.32/component/dialer/dialer.go)
-- 只有 IPv4 位址的 CDN，以及 App 直接指定 IPv4 位址的流量，仍可走 IPv4。若要求 Mac 端連這類流量也一律走 IPv6，需要使用可透過 IPv6 連入、且能代連 IPv4 目的地的代理節點。 [Mihomo 出站 IP 版本](https://wiki.metacubex.one/en/config/proxies/#ip-version)
+- 一般 IPv6 優先策略可連到只有 IPv4 位址的 CDN。指定 CDN 的 IPv6 限制以網易雲程序、TCP 和已知網域為範圍。若需要讓 Mac 透過 IPv6 存取只支援 IPv4 的目的地，可用能以 IPv6 連入、也能代連 IPv4 的代理節點。 [Mihomo 出站 IP 版本](https://wiki.metacubex.one/en/config/proxies/#ip-version)
 - 要還原時，將代理組切回原本的選項，並停用加入的擴充指令碼或還原先前備份，再重新啟用訂閱。
 
-## 腳本 A｜指定服務 IPv6 優先直連
+## 腳本 A 指定服務 IPv6 優先直連
 
 ```javascript
 // Clash Verge Rev 訂閱擴展腳本。使用「規則」模式。
@@ -137,36 +148,62 @@ function main(config) {
 }
 ```
 
-## 腳本 B｜網易雲 CDN 的 DNS 補強
+## 腳本 B 網易雲 CDN 補強與限制
 
 ```javascript
-// Define main function (script entry)
+// 接在腳本 A 結尾。訂閱名稱需和 Clash 中顯示的名稱完全相同。
+const neteaseProfileName = "請填入訂閱名稱";
+const neteaseIPv6Only = true;
+const applyServiceIPv6Preferences = main;
 
-function main(config, profileName) {
-  const dns = config.dns;
-  if (!dns || !dns.enable) {
-    return config;
-  }
+main = function (config, profileName) {
+  const updated = applyServiceIPv6Preferences(config, profileName);
+  if (profileName !== neteaseProfileName) return updated;
 
-  // 範例解析器。請依自己的網路和 CDN 的 AAAA 查詢結果調整。
   const neteaseResolvers = [
     "udp://119.29.29.29#DIRECT",
     "udp://223.5.5.5#DIRECT"
   ];
-  const neteaseDomains = [
-    "+.music.126.net",
-    "+.music.126.net.ctlcdn.cn",
-    "+.music.126.net.166cdn.com",
-    "+.music.126.net.163jiasu.com",
-    "+.music.126.net.a.bdydns.com"
+  const cdnSuffixes = [
+    "music.126.net",
+    "music.126.net.ctlcdn.cn",
+    "music.126.net.166cdn.com",
+    "music.126.net.163jiasu.com",
+    "music.126.net.a.bdydns.com"
+  ];
+  const cdnHosts = [
+    "opencdnnetmusic.jomodns.com",
+    "opencdnm126musicv6.jomodns.com",
+    "opencdnm126musicv6.cloud.c4hcdn.com"
   ];
 
-  const nameserverPolicy = { ...(dns["nameserver-policy"] || {}) };
-  for (const domain of neteaseDomains) {
-    nameserverPolicy[domain] = neteaseResolvers;
+  const dns = updated.dns;
+  if (dns && dns.enable) {
+    const policy = { ...(dns["nameserver-policy"] || {}) };
+    for (const suffix of cdnSuffixes) policy["+." + suffix] = neteaseResolvers;
+    for (const host of cdnHosts) policy[host] = neteaseResolvers;
+    dns["nameserver-policy"] = policy;
+    dns["direct-nameserver-follow-policy"] = true;
   }
-  dns["nameserver-policy"] = nameserverPolicy;
-  dns["direct-nameserver-follow-policy"] = true;
-  return config;
-}
+  if (!neteaseIPv6Only) return updated;
+
+  const outbound = "網易雲 CDN IPv6 直連";
+  const matches = [
+    ...cdnSuffixes.map(suffix => "(DOMAIN-SUFFIX," + suffix + ")"),
+    ...cdnHosts.map(host => "(DOMAIN," + host + ")")
+  ];
+  const rule = "AND,((NETWORK,tcp),(PROCESS-NAME-WILDCARD,NeteaseMusic*),(OR,("
+    + matches.join(",") + ")))," + outbound;
+  const proxies = updated.proxies || [];
+  if (!proxies.some(proxy => proxy.name === outbound)) {
+    updated.proxies = [...proxies, { name: outbound, type: "direct", "ip-version": "ipv6" }];
+  }
+  const rules = updated.rules || [];
+  if (!rules.includes(rule)) {
+    const afterPrivate = rules.findIndex(entry => !/^(?:GEOIP|GEOSITE),private,/i.test(entry));
+    const index = afterPrivate < 0 ? rules.length : afterPrivate;
+    updated.rules = [...rules.slice(0, index), rule, ...rules.slice(index)];
+  }
+  return updated;
+};
 ```
